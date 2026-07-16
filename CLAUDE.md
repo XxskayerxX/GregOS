@@ -124,7 +124,14 @@ Pièges du harnais, tous vécus :
   plein écran, `include/art_drakkar.h`, braises `lw_draw_embers`), phase LOGIN (GREG 1ᵉʳ,
   `art_greg.h`). Les gardiens sont animés **par palette** (`lw_tri`/`lw_mix`, entiers
   seulement) — **la grille de glyphes ne bouge JAMAIS** (compo validée par l'utilisateur).
-- **Fenêtres** (`kernel/*Window.cpp`, 20) — sous-classes de `Window`
+- **PNG** (`kernel/png.c`, `include/png_dec.h`) — décodeur from scratch en C pur
+  (inflate RFC1950/51 complet + défiltrage + palette/tRNS/alpha composité sur fond
+  uniforme, entrée hostile bornée partout). Testé `tests/host/png_test.c` (11/11
+  pixel-perfect vs Pillow + fuzz ; fixtures régénérables par `gen_png_fixtures.py`).
+  Utilisé par GregNet : `<img src>` inline + pages « image directe » (naviguer sur un
+  .png), cache par URL (`m_imgs[6]`), échelle nearest à la largeur de page, rendu
+  `Graphics::blit_opaque` (blit opaque clippé par lignes).
+- **Fenêtres** (`kernel/*Window.cpp`, 21) — sous-classes de `Window`
   (`draw()`/`on_event()`/`handle_char()`, géométrie `client_*`). Apps : Browser (GregNet),
   Terminal, FileManager, TextEditor/Viewer, ImageViewer (BMP), Paint, Calc, Clock,
   SystemMonitor, System, Casino (5 jeux), Poker, Games (launcher arcade plein écran via
@@ -210,6 +217,11 @@ Pièges du harnais, tous vécus :
   silences — le gate fermé n'enregistre pas) → analyse zero-crossing sur l'hôte.
 - Durcissements TLS optionnels restants (non exploitables réseau) : RSA-SHA384/512,
   efficacité du magasin de racines, OCSP/CRL, TLS 1.3/ChaCha20.
-- UI possibles : police Px437, glow par glyphe, clipping systémique dans
-  `Graphics::fill_rect` (couvrirait le resize de toutes les fenêtres d'un coup).
+- ✅ **Clipping systémique (2026-07-16)** : `Graphics::fill_rect` honore le clip
+  (`put_pixel` le faisait déjà → TOUTES les primitives clippent), le compositeur
+  clippe chaque fenêtre à son cadre (+5 px pour les ombres auto-dessinées) autour
+  de `windows[i]->draw()`. **Patron pour clipper à l'intérieur d'une fenêtre :
+  `get_clip`/`set_clip_raw` (save/restore), JAMAIS `clear_clip`** (écraserait le
+  clip par-fenêtre du compositeur) — Terminal/Paint/Browser migrés.
+- UI possibles : police Px437, glow par glyphe.
 - Voir `ROADMAP.md` pour la vision long-terme (self-hosting, 64 bits, WindowServer Ring 3…).

@@ -96,6 +96,7 @@ void TerminalWindow::draw()
     /* Clip all rendering to the client area so characters never bleed
        onto the window chrome or outside the window boundary.           */
     Graphics& g = Graphics::instance();
+    int cx1, cy1, cx2, cy2; g.get_clip(cx1, cy1, cx2, cy2);
     g.set_clip(ox, oy, client_w(), client_h());
 
     for (int row = 0; row < m_term.rows(); ++row) {
@@ -110,7 +111,7 @@ void TerminalWindow::draw()
     if (focused())
         draw_cursor();
 
-    g.clear_clip();  /* restore full-screen clip for subsequent draws */
+    g.set_clip_raw(cx1, cy1, cx2, cy2);  /* restore the outer (per-window) clip */
 }
 
 /* ── handle_char: bridge WM keyboard → shell loop via kb_inject_char ── */

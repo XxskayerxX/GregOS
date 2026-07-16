@@ -127,6 +127,11 @@ void Graphics::fill_rect(int x, int y, int w, int h, unsigned int color) {
     if (y < 0) { h += y; y = 0; }
     if (x + w > fb_w) w = fb_w - x;
     if (y + h > fb_h) h = fb_h - y;
+    /* honour the soft clip rect (put_pixel's twin write path) */
+    if (x < clip_x1) { w -= clip_x1 - x; x = clip_x1; }
+    if (y < clip_y1) { h -= clip_y1 - y; y = clip_y1; }
+    if (x + w > clip_x2) w = clip_x2 - x;
+    if (y + h > clip_y2) h = clip_y2 - y;
     if (w <= 0 || h <= 0) return;
     for (int row = 0; row < h; row++) {
         unsigned int* dst = back + (unsigned)(y + row) * (unsigned)fb_w + (unsigned)x;
@@ -185,6 +190,33 @@ void Graphics::gradient_rect(int x, int y, int w, int h,
         unsigned int col = GFX_RGB(r, g, b);
         if (vertical) draw_hline(x, y+i, w, col);
         else          draw_vline(x+i, y, h, col);
+    }
+}
+
+/* ── Graphics::blit_opaque ──────────────────────────────────────────────
+   Opaque XRGB image blit: clips against screen AND the soft clip rect,
+   then copies whole row spans (no per-pixel transparency test).           */
+void Graphics::blit_opaque(int x, int y, int w, int h, const unsigned int* px) {
+    if (!fb_ready || !px || w <= 0 || h <= 0) return;
+    const int stride = w;                    /* source row length (dwords) */
+
+    /* destination window [dx0,dx1) × [dy0,dy1): intersect target rect,
+       screen, and the soft clip rect                                      */
+    int dx0 = x, dy0 = y, dx1 = x + w, dy1 = y + h;
+    if (dx0 < 0)       dx0 = 0;
+    if (dy0 < 0)       dy0 = 0;
+    if (dx0 < clip_x1) dx0 = clip_x1;
+    if (dy0 < clip_y1) dy0 = clip_y1;
+    if (dx1 > fb_w)    dx1 = fb_w;
+    if (dy1 > fb_h)    dy1 = fb_h;
+    if (dx1 > clip_x2) dx1 = clip_x2;
+    if (dy1 > clip_y2) dy1 = clip_y2;
+    if (dx0 >= dx1 || dy0 >= dy1) return;
+
+    for (int dy = dy0; dy < dy1; ++dy) {
+        const unsigned int* s = px + (long)(dy - y) * stride + (dx0 - x);
+        unsigned int* d = back + (unsigned)dy * (unsigned)fb_w + (unsigned)dx0;
+        for (int i = 0; i < dx1 - dx0; ++i) d[i] = s[i];
     }
 }
 

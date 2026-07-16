@@ -45,13 +45,26 @@ public:
     static constexpr int HIST_MAX  = 16;         /* back/forward stack      */
     static constexpr int URL_MAX   = 512;        /* URL buffer size         */
 
-    /* A positioned run of same-styled text (content coordinates). */
+    /* A positioned run of same-styled text (content coordinates).
+       Images reuse the slice fields: off = index into m_imgs[], len = the
+       display height in px (used for culling).                            */
     struct Frag {
         int          x, y, w;   /* x/y relative to content origin, w in px */
-        int          off, len;  /* slice into the text arena               */
+        int          off, len;  /* slice into the text arena (or image)    */
         unsigned int color;
-        unsigned char flags;    /* FL_BOLD | FL_UL | FL_HR                  */
+        unsigned char flags;    /* FL_BOLD | FL_UL | FL_HR | FL_IMG         */
         short         link;     /* index into m_links[], or -1             */
+    };
+
+    /* Decoded inline images (PNG). px is a kmalloc'd dw×dh XRGB buffer,
+       already scaled to the layout width and alpha-composited over the
+       page background at decode time (the engine has no alpha blending). */
+    static constexpr int MAX_IMGS = 6;
+    struct Img {
+        char          url[256];
+        unsigned int* px;
+        int           dw, dh;
+        bool          failed;
     };
 
 private:
@@ -125,6 +138,15 @@ private:
     /* ── link table ──────────────────────────────────────────────────── */
     char  m_links[MAX_LINKS][LINK_MAX];
     int   m_link_count { 0 };
+
+    /* ── inline images ───────────────────────────────────────────────── */
+    Img   m_imgs[MAX_IMGS];
+    int   m_img_count { 0 };
+    void  free_images();
+    int   register_image_from(const char* abs_url,
+                              const unsigned char* data, int len);
+    int   load_image(const char* abs_url);   /* cache → fetch → decode     */
+    void  add_img_frag(int idx);
 
     /* ── parser pen / style state ────────────────────────────────────── */
     int   m_pen_x { 0 }, m_pen_y { 0 };

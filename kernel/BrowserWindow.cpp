@@ -23,6 +23,8 @@ extern "C" const char* tls_cert_error(void);   /* reason for a -3 cert failure *
 
 extern "C" volatile unsigned long jiffies;
 extern "C" void  kfree(void* p);
+extern "C" void* kmalloc(unsigned int size);
+#include "../include/png_dec.h"
 
 /* ── Palette ─────────────────────────────────────────────────────────────── */
 /* Page rendue comme un parchemin (vélin) — assorti au thème des documents. */
@@ -37,6 +39,9 @@ static const unsigned int WHITE         = Theme::VELLUM;       /* page = parchem
 static const unsigned char FL_BOLD = 0x01;
 static const unsigned char FL_UL   = 0x02;
 static const unsigned char FL_HR   = 0x04;
+static const unsigned char FL_IMG  = 0x08;
+
+static const int IMG_FETCH_MAX = 262144;   /* 256 KB per image download */
 
 static const int HTTP_MAX_LEN = 131072;   /* 128 KB body cap */
 
@@ -322,6 +327,11 @@ static const char* bw_home_html()
     "<li><a href=\"http://httpforever.com\">httpforever.com - HTTP chunked</a></li>"
     "<li><a href=\"greg://about\">A propos de GregNet</a></li>"
     "</ul>"
+    "<h2>Images PNG (decodeur maison)</h2>"
+    "<ul>"
+    "<li><a href=\"http://httpbin.org/image/png\">httpbin.org/image/png - PNG direct en HTTP</a></li>"
+    "<li><a href=\"https://www.wikipedia.org/portal/wikipedia.org/assets/img/Wikipedia-logo-v2.png\">Logo Wikipedia - PNG direct en HTTPS</a></li>"
+    "</ul>"
     "<h2>Securite - ces liens DOIVENT etre refuses</h2>"
     "<ul>"
     "<li><a href=\"https://expired.badssl.com\">expired.badssl.com - certificat expire</a></li>"
@@ -557,6 +567,22 @@ void BrowserWindow::handle_tag(const char* name, bool closing,
         flush_frag(); recompute_pen();
         return;
     }
+    if (bw_streq(name, "img")) {
+        char src[LINK_MAX];
+        if (bw_get_attr(attrs, attrlen, "src", src, LINK_MAX) && src[0]) {
+            char abs[LINK_MAX];
+            bw_url_join(m_url, src, abs, LINK_MAX);
+            int idx = load_image(abs);
+            if (idx >= 0) { add_img_frag(idx); return; }
+        }
+        /* undecodable / unfetchable: show the alt text, or a marker */
+        char alt[64];
+        if (!bw_get_attr(attrs, attrlen, "alt", alt, (int)sizeof(alt)) || !alt[0])
+            bw_strcpy(alt, "[image]", (int)sizeof(alt));
+        int al = bw_strlen(alt);
+        emit_word(alt, al);
+        return;
+    }
     if (bw_streq(name, "b") || bw_streq(name, "strong")) {
         ++m_bold_depth; flush_frag(); recompute_pen(); return; }
     if (bw_streq(name, "i") || bw_streq(name, "em")) {
@@ -670,6 +696,101 @@ void BrowserWindow::free_body()
     }
 }
 
+/* ── inline images ───────────────────────────────────────────────────────── */
+
+void BrowserWindow::free_images()
+{
+    for (int i = 0; i < m_img_count; ++i) {
+        if (m_imgs[i].px) kfree(m_imgs[i].px);
+        m_imgs[i].px = nullptr;
+    }
+    m_img_count = 0;
+}
+
+/* Decode `data` as PNG, scale it to the page width (nearest-neighbour,
+   integer), composite alpha over the parchment, and register it in the
+   cache under `abs_url`. Returns the image index, or -1 (a failed entry
+   is still cached so the same broken URL is not refetched).               */
+int BrowserWindow::register_image_from(const char* abs_url,
+                                       const unsigned char* data, int len)
+{
+    if (m_img_count >= MAX_IMGS) return -1;
+    Img& im = m_imgs[m_img_count];
+    bw_strcpy(im.url, abs_url, (int)sizeof(im.url));
+    im.px = nullptr; im.dw = 0; im.dh = 0; im.failed = true;
+    int idx = m_img_count++;
+
+    int w = 0, h = 0;
+    if (!png_dims(data, len, &w, &h)) return -1;
+
+    int scratch_len = png_scratch_size(w, h);
+    unsigned char* scratch = (unsigned char*)kmalloc((unsigned)scratch_len);
+    unsigned int*  full    = (unsigned int*)kmalloc((unsigned)w * (unsigned)h * 4u);
+    if (scratch && full &&
+        png_decode(data, len, scratch, scratch_len, full, WHITE)) {
+        int maxw = content_w() - 4; if (maxw < 16) maxw = 16;
+        int dw = w, dh = h;
+        if (dw > maxw) { dh = (h * maxw) / w; if (dh < 1) dh = 1; dw = maxw; }
+        unsigned int* sc = (unsigned int*)kmalloc((unsigned)dw * (unsigned)dh * 4u);
+        if (sc) {
+            for (int y = 0; y < dh; ++y) {
+                const unsigned int* srow = full + (long)((long)y * h / dh) * w;
+                unsigned int*       drow = sc + (long)y * dw;
+                for (int x = 0; x < dw; ++x) drow[x] = srow[(long)x * w / dw];
+            }
+            im.px = sc; im.dw = dw; im.dh = dh; im.failed = false;
+        }
+    }
+    if (scratch) kfree(scratch);
+    if (full)    kfree(full);
+    return im.failed ? -1 : idx;
+}
+
+int BrowserWindow::load_image(const char* abs_url)
+{
+    for (int i = 0; i < m_img_count; ++i)            /* cache (re-layouts) */
+        if (bw_streq(m_imgs[i].url, abs_url))
+            return m_imgs[i].failed ? -1 : i;
+    if (m_img_count >= MAX_IMGS || !net_ready()) return -1;
+
+    bool https = bw_starts(abs_url, "https://");
+    if (!https && !bw_starts(abs_url, "http://")) return -1;
+
+    char  final_url[URL_MAX]; final_url[0] = '\0';
+    char  ctype[64];          ctype[0] = '\0';
+    char* body = nullptr; int blen = 0;
+    int code = https
+             ? https_get(abs_url, &body, &blen, IMG_FETCH_MAX, final_url, ctype)
+             : http_get (abs_url, &body, &blen, IMG_FETCH_MAX, final_url, ctype);
+
+    int idx = -1;
+    if (code >= 200 && code < 300 && body && blen > 8)
+        idx = register_image_from(abs_url, (const unsigned char*)body, blen);
+    else if (m_img_count < MAX_IMGS) {               /* cache the failure  */
+        Img& im = m_imgs[m_img_count++];
+        bw_strcpy(im.url, abs_url, (int)sizeof(im.url));
+        im.px = nullptr; im.failed = true;
+    }
+    if (body) kfree(body);
+    return idx;
+}
+
+/* Place a decoded image as a block frag at the current pen position —
+   same pen mechanics as add_hr() (the reference block element).           */
+void BrowserWindow::add_img_frag(int idx)
+{
+    if (idx < 0 || idx >= m_img_count || m_imgs[idx].failed) return;
+    Img& im = m_imgs[idx];
+    flush_word();
+    if (!m_at_line_start) line_break(); else flush_frag();
+    add_frag(m_indent, m_pen_y, im.dw, idx, im.dh, 0, FL_IMG, -1);
+    m_pen_y += im.dh + 4;
+    m_pen_x = m_indent; m_at_line_start = true;
+    m_frag_x = m_pen_x; m_frag_start = m_text_len;
+    m_any_content = true;
+    m_gap_done    = false;
+}
+
 void BrowserWindow::set_error_page(const char* title, const char* l1,
                                    const char* l2, const char* l3)
 {
@@ -694,6 +815,7 @@ void BrowserWindow::navigate(const char* urlin, bool push)
     if (url[0] == '\0') return;
 
     free_body();   /* release previous document buffer on every navigation */
+    free_images(); /* and the previous page's decoded images               */
 
     /* internal pseudo-pages */
     if (bw_starts(url, "greg://")) {
@@ -783,6 +905,32 @@ void BrowserWindow::navigate(const char* urlin, bool push)
     /* success */
     bw_strcpy(m_url, (final_url[0] ? final_url : url), URL_MAX);
     m_scroll = 0;
+
+    /* direct image document: the whole body is a PNG → synthesize a page
+       around it (the <img> loader will hit the cache, no refetch)          */
+    if (len > 8 && (unsigned char)body[0] == 0x89 &&
+        body[1] == 'P' && body[2] == 'N' && body[3] == 'G') {
+        int ok = register_image_from(m_url, (const unsigned char*)body, len);
+        int p = 0; char* b2 = m_errbuf; int cap = (int)sizeof(m_errbuf);
+        if (ok >= 0) {
+            p = s_cat(b2, p, cap, "<h2>Image PNG</h2><p><img src=\"");
+            p = s_cat(b2, p, cap, m_url);
+            p = s_cat(b2, p, cap, "\"></p>");
+        } else {
+            p = s_cat(b2, p, cap,
+                      "<h1>Image illisible</h1><p>Le PNG n'a pas pu etre decode "
+                      "(entrelace, 16 bits ou corrompu).</p>");
+        }
+        s_cat(b2, p, cap, "<hr><p><a href=\"greg://home\">Retour a l'accueil</a></p>");
+        layout(m_errbuf);
+        bw_strcpy(m_status, ok >= 0 ? "Image PNG decodee" : "PNG non decodable",
+                  (int)sizeof(m_status));
+        bw_strcpy(m_addr, m_url, URL_MAX); m_addr_len = bw_strlen(m_addr);
+        m_addr_focus = false;
+        if (push) push_history(m_url);
+        return;
+    }
+
     layout(m_body);
 
     /* status: HTTP code, size, content-type, title */
@@ -891,13 +1039,14 @@ void BrowserWindow::draw_toolbar()
     char vbuf[128]; int q = 0;
     for (int k = start; k < m_addr_len && q < 127; ++k) vbuf[q++] = m_addr[k];
     vbuf[q] = '\0';
+    int cx1, cy1, cx2, cy2; g.get_clip(cx1, cy1, cx2, cy2);
     g.set_clip(r.fld_x + 2, r.y, r.fld_w - 4, r.h);
     g.draw_str(r.fld_x + 4, r.y + (r.h - 16) / 2, vbuf, Theme::VELLUM_INK, GFX_TRANSPARENT);
     if (m_addr_focus && (jiffies / 50) % 2 == 0) {
         int cxp = r.fld_x + 4 + (m_addr_len - start) * CW;
         g.draw_vline(cxp, r.y + 3, r.h - 6, Theme::VELLUM_INK);
     }
-    g.clear_clip();
+    g.set_clip_raw(cx1, cy1, cx2, cy2);
 }
 
 void BrowserWindow::draw_content()
@@ -908,6 +1057,7 @@ void BrowserWindow::draw_content()
     if (vh <= 0) return;
 
     g.fill_rect(vx, vy, vw, vh, WHITE);
+    int cx1, cy1, cx2, cy2; g.get_clip(cx1, cy1, cx2, cy2);
     g.set_clip(vx, vy, vw, vh);
 
     int cx0  = client_x() + PAD;
@@ -915,8 +1065,14 @@ void BrowserWindow::draw_content()
     for (int i = 0; i < m_frag_count; ++i) {
         Frag& f = m_frags[i];
         int sy = ctop - m_scroll + f.y;
-        if (sy + LH < vy || sy > vy + vh) continue;
+        int fh = (f.flags & FL_IMG) ? f.len : LH;   /* culling height */
+        if (sy + fh < vy || sy > vy + vh) continue;
         int sx = cx0 + f.x;
+        if (f.flags & FL_IMG) {
+            if (f.off >= 0 && f.off < m_img_count && m_imgs[f.off].px)
+                g.blit_opaque(sx, sy, f.w, f.len, m_imgs[f.off].px);
+            continue;
+        }
         if (f.flags & FL_HR) {
             g.draw_hline(sx, sy + LH / 2, f.w, HR_COLOR);
             continue;
@@ -930,7 +1086,7 @@ void BrowserWindow::draw_content()
         if (f.flags & FL_BOLD) g.draw_str(sx + 1, tyy, buf, f.color, GFX_TRANSPARENT);
         if (f.flags & FL_UL)   g.draw_hline(sx, sy + LH - 3, f.w, f.color);
     }
-    g.clear_clip();
+    g.set_clip_raw(cx1, cy1, cx2, cy2);
 }
 
 void BrowserWindow::draw_scrollbar()
@@ -964,9 +1120,11 @@ void BrowserWindow::draw_status_bar()
     g.fill_rect(sx, sy, sw, STATUS_H, Theme::WIN_BG);
     g.draw_hline(sx, sy, sw, Theme::BEVEL_INNER_LT);
     const char* txt = m_hover[0] ? m_hover : m_status;
+    int cx1, cy1, cx2, cy2;
+    g.get_clip(cx1, cy1, cx2, cy2);
     g.set_clip(sx, sy, sw, STATUS_H);
     g.draw_str(sx + 6, sy + (STATUS_H - 16) / 2, txt, 0x202020u, GFX_TRANSPARENT);
-    g.clear_clip();
+    g.set_clip_raw(cx1, cy1, cx2, cy2);
 }
 
 void BrowserWindow::draw()
@@ -1133,6 +1291,7 @@ bool BrowserWindow::handle_char(int c)
 void BrowserWindow::on_removed()
 {
     free_body();
+    free_images();
 }
 
 void BrowserWindow::init_browser()

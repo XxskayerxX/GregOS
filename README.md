@@ -42,7 +42,7 @@
 |---|---|
 | 🖥️ **Bureau graphique** | Compositeur + gestionnaire de fenêtres, curseur logiciel, **21 applications** natives |
 | 🌐 **Vraie pile TCP/IP** | RTL8139 → ARP · IPv4 · ICMP · UDP · **TCP** · DNS · **HTTP** — `ping`, `nslookup`, `curl` marchent *vraiment* |
-| 🧭 **GregNet** | Navigateur web fenêtré : barre d'adresse, historique, moteur de rendu HTML, liens cliquables |
+| 🧭 **GregNet** | Navigateur web fenêtré : barre d'adresse, historique, moteur de rendu HTML, liens cliquables, **images PNG inline** (décodeur inflate/PNG from scratch) |
 | 💾 **Persistance disque** | Système de fichiers en mémoire sérialisé sur disque via un pilote **ATA/IDE** maison |
 | 🎮 **Jeux + Casino** | **Le Donjon de Drakkar** (roguelike) · **Hnefatafl** (tafl viking vs IA minimax) · Démineur du Donjon · Snake, Tetris, Invaders, 2048… + Blackjack / Roulette / Slots / Poker en **GregCoins** |
 | 🎵 **Le Chant Runique** | **Premier son de GregOS** : clavier 2 octaves sur le haut-parleur PC (PIT canal 2) + 4 mélodies du royaume jouées dans un thread — vérifié à l'oscillo logiciel (capture WAV QEMU, fréquences mesurées) |
@@ -73,6 +73,37 @@ make run        # démarre dans QEMU (RTL8139 + audio PC speaker)
 <summary><b>📜 Journal des versions &amp; nouveautés détaillées — cliquer pour déplier</b></summary>
 
 <br>
+
+## 🌍 GregNet affiche les images du vrai web — décodeur PNG from scratch
+
+GregOS **décode et affiche désormais des PNG**, et pas avec une bibliothèque : avec un
+décodeur écrit de zéro (`kernel/png.c`, C pur, zéro allocation interne) — **zlib/DEFLATE
+complet** (blocs stockés + Huffman fixe + **Huffman dynamique**, adler32 vérifié), chunks
+PNG, **défiltrage** None/Sub/Up/Average/**Paeth**, types de couleur gris / gris+alpha /
+RGB / **palette (+tRNS)** / **RGBA**. Le moteur graphique n'ayant pas d'alpha-blending,
+l'alpha est **composité au décodage** sur le fond parchemin (arithmétique entière exacte).
+Les fichiers 16 bits et entrelacés Adam7 sont rejetés proprement ; tout octet est traité
+comme hostile (bornes vérifiées partout, longueurs de chunks contrôlées **sans débordement
+d'entier signé** — une revue adversariale a trouvé et corrigé exactement ce cas). La preuve :
+une suite hôte compare le décodeur **pixel par pixel à Pillow** sur 8 familles d'images
+(**12/12** avec un PNG hostile dédié, dégradés, palette, bruit, alpha) et le **fuzz**
+troncature+corruption ne le fait jamais broncher. Dans GregNet :
+`<img src>` est parsé, l'image téléchargée (HTTP/HTTPS **avec vérification de
+certificats**), décodée, **mise à l'échelle** à la largeur de page et rendue inline —
+navigateur vers un `.png` direct = page image automatique. Vérifié en bout-en-bout dans
+QEMU : **le logo de Wikipédia, téléchargé en HTTPS certifié, s'affiche dans GregNet** —
+la première image du vrai web jamais rendue par GregOS.
+
+## 🖼️ Moteur graphique : clipping systémique
+
+Toutes les primitives de `Graphics` (dont `fill_rect`, le chemin d'écriture de masse)
+honorent désormais le **rectangle de clip**, et le compositeur **clippe chaque fenêtre à
+son propre cadre** pendant son rendu. Conséquence : les **21 fenêtres** de GregOS
+deviennent sûres au redimensionnement d'un coup — une fenêtre à disposition fixe réduite
+par l'utilisateur ne peut plus peindre par-dessus le bureau ou ses voisines (vérifié en
+QEMU : Calculatrice réduite de force → contenu coupé au pixel du cadre, rien ne déborde).
+Les fenêtres qui clippent en interne (Terminal, Paint, GregNet) empilent proprement leur
+clip via save/restore. C'est aussi la fondation du rendu des images scrollées de GregNet.
 
 ## 🎵 Le Chant Runique — GregOS fait entendre sa voix
 

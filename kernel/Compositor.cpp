@@ -512,7 +512,13 @@ void Compositor::compose(Greg::Vector<Greg::RefPtr<Window>>& windows)
         int sx = w->x(), sy = w->y(), sw = w->w(), sh = w->h();
         g.fill_rect(sx + sw, sy + 5, 5, sh, Theme::GOUFFRE);   /* right band */
         g.fill_rect(sx + 5, sy + sh, sw, 5, Theme::GOUFFRE);   /* bottom band */
+        /* Systemic clipping: no window can paint outside its own frame
+           (fixed layouts on a user-shrunk frame, partial offscreen drags…).
+           +5px right/bottom so self-drawn drop shadows (menus, Casino)
+           keep their overhang. Inner clippers save/restore, cf Graphics.  */
+        g.set_clip(sx, sy, sw + 5, sh + 5);
         windows[i]->draw();
+        g.clear_clip();
     }
 
     draw_taskbar(windows);

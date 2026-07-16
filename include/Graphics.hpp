@@ -43,7 +43,12 @@ public:
 
     /* Clip rectangle — constrains all subsequent draw calls.
        set_clip() activates it; clear_clip() resets to full screen.
-       Implemented as [x1,x2) × [y1,y2) half-open intervals.           */
+       Implemented as [x1,x2) × [y1,y2) half-open intervals.
+       Honoured by EVERY primitive (put_pixel and fill_rect are the two
+       write paths — everything else routes through them).
+       Nested users (a window clipping inside the compositor's per-window
+       clip) must save/restore with get_clip()/set_clip_raw() instead of
+       clear_clip(), which would blow away the outer clip.               */
     void set_clip(int x, int y, int w, int h) {
         clip_x1 = x; clip_y1 = y;
         clip_x2 = x + w; clip_y2 = y + h;
@@ -51,6 +56,12 @@ public:
     void clear_clip() {
         clip_x1 = 0; clip_y1 = 0;
         clip_x2 = fb_w; clip_y2 = fb_h;
+    }
+    void get_clip(int& x1, int& y1, int& x2, int& y2) const {
+        x1 = clip_x1; y1 = clip_y1; x2 = clip_x2; y2 = clip_y2;
+    }
+    void set_clip_raw(int x1, int y1, int x2, int y2) {
+        clip_x1 = x1; clip_y1 = y1; clip_x2 = x2; clip_y2 = y2;
     }
 
     /* Primitive writes to the BACK BUFFER */
@@ -62,6 +73,9 @@ public:
         back[(unsigned)y * (unsigned)fb_w + (unsigned)x] = color;
     }
     void fill_rect(int x, int y, int w, int h, unsigned int color);
+    /* Opaque XRGB blit (no colour-key test) — row-span copies, honours the
+       clip rect. The fast path for decoded images (GregNet, viewers).      */
+    void blit_opaque(int x, int y, int w, int h, const unsigned int* pixels);
     void draw_hline(int x, int y, int len, unsigned int color);
     void draw_vline(int x, int y, int len, unsigned int color);
     void draw_rect(int x, int y, int w, int h, unsigned int color);

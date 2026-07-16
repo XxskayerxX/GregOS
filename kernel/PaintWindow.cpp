@@ -307,6 +307,7 @@ void PaintWindow::draw_preview() {
     if (!m_dragging) return;
     Graphics& g = Graphics::instance();
     int ox = cvx(), oy = cvy();
+    int cx1, cy1, cx2, cy2; g.get_clip(cx1, cy1, cx2, cy2);
     g.set_clip(ox, oy, CANVAS_W, CANVAS_H);
     int x0 = ox + m_sx, y0 = oy + m_sy, x1 = ox + m_cx, y1 = oy + m_cy;
     unsigned int col = m_color;
@@ -329,7 +330,7 @@ void PaintWindow::draw_preview() {
             y++; if(err<=0) err+=2*y+1; if(err>0){x--; err-=2*x+1;}
         }
     }
-    g.clear_clip();
+    g.set_clip_raw(cx1, cy1, cx2, cy2);
 }
 
 /* ── draw ────────────────────────────────────────────────────────────────── */
@@ -366,9 +367,10 @@ void PaintWindow::draw() {
     /* Canvas blit. */
     int ox = cvx(), oy = cvy();
     if (m_canvas) {
+        int cx1, cy1, cx2, cy2; g.get_clip(cx1, cy1, cx2, cy2);
         g.set_clip(ox, oy, CANVAS_W, CANVAS_H);
         g.draw_image(ox, oy, CANVAS_W, CANVAS_H, m_canvas);
-        g.clear_clip();
+        g.set_clip_raw(cx1, cy1, cx2, cy2);
         g.draw_rect(ox - 1, oy - 1, CANVAS_W + 2, CANVAS_H + 2, Theme::GOLD_DIM);
     } else {
         g.draw_str(ox + 8, oy + 8, "Erreur: canvas non alloue", Theme::FG_ALERT, Theme::WIN_BG);
