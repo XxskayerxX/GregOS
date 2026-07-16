@@ -17,6 +17,7 @@ extern "C" void open_clock_window(void);
 extern "C" void open_minesweeper_window(void);
 extern "C" void open_dungeon_window(void);
 extern "C" void open_hnefatafl_window(void);
+extern "C" void open_runechant_window(void);
 
 static const char* s_labels[StartMenuWindow::N_ITEMS] = {
     "GregNet (Web)",
@@ -30,6 +31,7 @@ static const char* s_labels[StartMenuWindow::N_ITEMS] = {
     "Demineur",
     "Donjon",
     "Hnefatafl",
+    "Chant Runique",
     "Moniteur",
     "Systeme",
 };
@@ -110,8 +112,9 @@ void StartMenuWindow::launch_item(int idx)
     case 8: open_minesweeper_window();    break;
     case 9: open_dungeon_window();        break;
     case 10: open_hnefatafl_window();     break;
-    case 11: open_system_monitor_window(); break;
-    case 12: open_system_window();        break;
+    case 11: open_runechant_window();     break;
+    case 12: open_system_monitor_window(); break;
+    case 13: open_system_window();        break;
     }
 }
 

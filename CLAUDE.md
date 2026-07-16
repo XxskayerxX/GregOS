@@ -200,16 +200,14 @@ Pièges du harnais, tous vécus :
 ## État actuel & prochaine étape
 
 - **Triptyque du Royaume** (3 apps, spec `docs/superpowers/specs/2026-07-15-triptyque-royaume-design.md`) :
-  ✅ 1/3 Donjon de Drakkar · ✅ 2/3 Hnefatafl · ⏳ **3/3 « Chant Runique »** — clavier/
-  séquenceur **PC speaker** (premier son *musical* de GregOS). Matériel prêt : PIT
-  canal 2 (`kernel/Timer.cpp` : `Kernel::Timer::beep(hz,ms)` bloquant +
-  `speaker_set_freq/on/off`) et **les ponts C non-bloquants EXISTENT DÉJÀ** :
-  `timer_speaker_on(hz)` / `timer_speaker_off()` dans `include/Kernel/timer_c.h`,
-  déjà utilisés par kernel.c (shell/Simon) — **ne pas les réimplémenter**. Reste à
-  faire : la fenêtre `RuneChantWindow` (clavier runique cliquable, table de fréquences
-  entières), mélodies jouées dans un **thread ordonnanceur** cadencé sur `jiffies`
-  (patron `launch_*_async`), un seul son à la fois, `timer_speaker_off()` **garanti**
-  en sortie (`on_removed`). QEMU : l'audio est branché par `make run` (`pcspk-audiodev`).
+  ✅ **TRIPTYQUE COMPLET (2026-07-16)** : 1/3 Donjon de Drakkar · 2/3 Hnefatafl ·
+  3/3 Chant Runique (`kernel/RuneChantWindow.cpp` + données C pur
+  `kernel/runechant_data.c` testées `tests/host/runechant_test.c`). Le son marche :
+  ponts `timer_speaker_on/off` (timer_c.h), mélodies en thread `scheduler_spawn`,
+  annulation par compteur de génération + cli/sti, `speaker_off` garanti `on_removed`.
+  **Patron de vérif audio à réutiliser** : QEMU `-audiodev wav,id=snd0,path=x.wav
+  -machine pc,pcspk-audiodev=snd0` enregistre le haut-parleur (⚠️ le WAV omet les
+  silences — le gate fermé n'enregistre pas) → analyse zero-crossing sur l'hôte.
 - Durcissements TLS optionnels restants (non exploitables réseau) : RSA-SHA384/512,
   efficacité du magasin de racines, OCSP/CRL, TLS 1.3/ChaCha20.
 - UI possibles : police Px437, glow par glyphe, clipping systémique dans

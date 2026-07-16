@@ -17,6 +17,7 @@ extern "C" void open_paint_window(void);
 extern "C" void open_clock_window(void);
 extern "C" void open_dungeon_window(void);
 extern "C" void open_hnefatafl_window(void);
+extern "C" void open_runechant_window(void);
 
 static const char* s_labels[ContextMenuWindow::N_ITEMS] = {
     "Nouveau Terminal",
@@ -30,6 +31,7 @@ static const char* s_labels[ContextMenuWindow::N_ITEMS] = {
     "Systeme",
     "Donjon",
     "Hnefatafl",
+    "Chant Runique",
 };
 
 /* ── bevel helper ─────────────────────────────────────────────────────── */
@@ -85,6 +87,7 @@ void ContextMenuWindow::draw()
             Theme::ASH,          /* system   */
             Theme::BLOOD_MID,    /* donjon   */
             Theme::GOLD,         /* hnefatafl */
+            Theme::EMBER,        /* chant    */
         };
         g.fill_rect(_x + 6, iy + (ITEM_H - 8) / 2, 8, 8, s_icon_color[i]);
         g.draw_str(_x + 20, iy + (ITEM_H - 16) / 2, s_labels[i], ifg,
@@ -120,6 +123,7 @@ void ContextMenuWindow::launch_item(int idx)
     case 8: open_system_window();         break;
     case 9: open_dungeon_window();        break;
     case 10: open_hnefatafl_window();     break;
+    case 11: open_runechant_window();     break;
     }
 }
 

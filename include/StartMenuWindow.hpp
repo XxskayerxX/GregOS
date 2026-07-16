@@ -14,7 +14,7 @@ public:
     static constexpr int MENU_W   = 160;
     static constexpr int HEADER_H = 24;
     static constexpr int ITEM_H   = 22;
-    static constexpr int N_ITEMS  = 13;
+    static constexpr int N_ITEMS  = 14;
     /* HEADER_H + 2px separator + N items + 4px bottom padding */
     static constexpr int MENU_H   = HEADER_H + 2 + N_ITEMS * ITEM_H + 4;
 

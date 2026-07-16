@@ -12,7 +12,7 @@ class ContextMenuWindow : public Window {
 public:
     static constexpr int ITEM_H  = 22;
     static constexpr int MENU_W  = 170;
-    static constexpr int N_ITEMS = 11;
+    static constexpr int N_ITEMS = 12;
     static constexpr int MENU_H  = N_ITEMS * ITEM_H + 4;
 
     ContextMenuWindow() = default;

@@ -40,11 +40,12 @@
 
 |   |   |
 |---|---|
-| 🖥️ **Bureau graphique** | Compositeur + gestionnaire de fenêtres, curseur logiciel, **20 applications** natives |
+| 🖥️ **Bureau graphique** | Compositeur + gestionnaire de fenêtres, curseur logiciel, **21 applications** natives |
 | 🌐 **Vraie pile TCP/IP** | RTL8139 → ARP · IPv4 · ICMP · UDP · **TCP** · DNS · **HTTP** — `ping`, `nslookup`, `curl` marchent *vraiment* |
 | 🧭 **GregNet** | Navigateur web fenêtré : barre d'adresse, historique, moteur de rendu HTML, liens cliquables |
 | 💾 **Persistance disque** | Système de fichiers en mémoire sérialisé sur disque via un pilote **ATA/IDE** maison |
 | 🎮 **Jeux + Casino** | **Le Donjon de Drakkar** (roguelike) · **Hnefatafl** (tafl viking vs IA minimax) · Démineur du Donjon · Snake, Tetris, Invaders, 2048… + Blackjack / Roulette / Slots / Poker en **GregCoins** |
+| 🎵 **Le Chant Runique** | **Premier son de GregOS** : clavier 2 octaves sur le haut-parleur PC (PIT canal 2) + 4 mélodies du royaume jouées dans un thread — vérifié à l'oscillo logiciel (capture WAV QEMU, fréquences mesurées) |
 | 🛡️ **Userland Ring-3** | CPL=3 réel, un *page directory* par processus, syscalls `INT 0x80`, chargeur **ELF** |
 | ⚡ **ACPI + préemption** | Extinction / reboot ACPI réels, ordonnanceur préemptif 100 Hz, réseau piloté par IRQ |
 | 🎨 **Shell 110+ cmds** | Pipes, alias, redirections, variables, historique, complétion Tab, thèmes ANSI |
@@ -72,6 +73,29 @@ make run        # démarre dans QEMU (RTL8139 + audio PC speaker)
 <summary><b>📜 Journal des versions &amp; nouveautés détaillées — cliquer pour déplier</b></summary>
 
 <br>
+
+## 🎵 Le Chant Runique — GregOS fait entendre sa voix
+
+Pour la première fois, le royaume **sonne**. `Chant Runique` (`kernel/RuneChantWindow.cpp` +
+données musicales en **C pur testé hors-noyau** `kernel/runechant_data.c`) pilote le
+**haut-parleur PC** — le vrai matériel : PIT canal 2 (ports 0x42/0x43) et gate 0x61. Un
+**clavier de deux octaves** (25 notes chromatiques, La4 = 440 Hz exact, table entière
+validée : octaves, diviseurs PIT 16 bits) se joue à la souris ou sur la rangée AZERTY
+(`Q S D F G H J K` + `Z E T Y U` pour les dièses). Quatre **mélodies du royaume** — *Cor
+de Guerre*, *Fanfare de Victoire*, *Marche Funèbre*, *Chant du Drakkar* — tournent dans un
+**thread ordonnanceur** : l'UI ne gèle jamais (on peut ouvrir le menu Démarrer pendant la
+musique). Le cycle de vie du son est verrouillé par un **compteur de génération** (un seul
+son à la fois, sections `cli/sti` contre les notes fantômes) et le haut-parleur est coupé
+de façon **garantie** à la fermeture (`on_removed`). La vérification est inédite : QEMU
+enregistre le haut-parleur dans un **WAV**, analysé ensuite par comptage de passages à
+zéro — chaque note de la Fanfare y est **mesurée à la bonne fréquence et à la bonne durée**
+(523→659→784→1047 Hz, 120/400/900 ms), l'ESC tronque le *Chant du Drakkar* en plein vol,
+et la fermeture en pleine lecture coupe la note **au milieu** puis laisse un silence
+absolu. Une **revue adversariale multi-agents** a ensuite disséqué la concurrence (10
+défauts confirmés, tous corrigés — dont un vol de propriété du haut-parleur dans la
+fenêtre de 10 ms entre le spawn du thread et son premier tick, réglé par un **ticket de
+génération consommé atomiquement**) et le tout a été re-vérifié au signal. Le premier
+oscilloscope logiciel de l'histoire de GregOS.
 
 ## ⚔️ Hnefatafl — le Jeu du Roi, contre l'IA du royaume
 
