@@ -1,0 +1,16 @@
+# ── Artefacts de build (régénérés par `make`) ───────────────────────────────
+*.o
+kernel.bin
+myos.iso
+iso/
+disk.img
+programs/**/*.elf
+programs/**/*.bin
+
+# ── Anciens wallpapers BMP (retirés du build, remplacés par le fond procédural)
+gregbg.bmp
+gregbg_800x600.bmp
+
+# ── Maquettes de référence locales (6,8 Mo dont un MP4) ─────────────────────
+# Supprime cette ligne si tu veux les versionner :
+greg et drakkar/
