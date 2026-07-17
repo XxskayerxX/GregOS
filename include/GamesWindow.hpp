@@ -17,7 +17,7 @@
 
 class GamesWindow : public Window {
 public:
-    static constexpr int N_GAMES = 10;
+    static constexpr int N_GAMES = 11;
     static constexpr int ROW_H   = 28;  /* px per row in the game list */
 
     GamesWindow() = default;

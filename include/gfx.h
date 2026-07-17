@@ -37,6 +37,10 @@ void gfx_gradient_rect(int x, int y, int w, int h,
 /* Copy Graphics back-buffer → VGA framebuffer (opt-in double buffering). */
 void gfx_swap_buffers(void);
 
+/* Direct pointer to the back buffer (tightly packed, stride = gfx_width()).
+   For games that composite whole frames themselves. */
+unsigned int* gfx_get_backbuffer(void);
+
 /* Decode a 24-bit uncompressed BMP from a memory pointer and blit it
    onto the back-buffer at (start_x, start_y). Bottom-up / BGR handled. */
 void gfx_draw_bmp_memory(const unsigned char* data, int start_x, int start_y);

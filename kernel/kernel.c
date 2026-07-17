@@ -9640,6 +9640,9 @@ static void __attribute__((unused)) gui_open_sysinfo(void) {
 }
 
 /* ── Start Menu and system bridges ─────────────────────────────────── */
+/* KERNEL PANIC — Doom-64-like FPS, defined in kernel/doom.c (separate TU). */
+extern void gg_kernel_panic(void);
+
 /* launch_arcade_game: legacy blocking launcher (terminal commands still use it).
    Suspends the GUI EventQueue, runs the blocking gg_*() game loop,
    then restores GUI routing and redraws the desktop.                    */
@@ -9657,6 +9660,7 @@ void launch_arcade_game(int n)
         case 7: gg_simon();       break;
         case 8: gg_matrix();      break;
         case 9: gg_clock();       break;
+        case 10: gg_kernel_panic(); break;
     }
     is_gui_active = 1;
     kb_inject_flush();
@@ -9684,6 +9688,7 @@ static void arcade_game_thread(void)
         case 7: gg_simon();       break;
         case 8: gg_matrix();      break;
         case 9: gg_clock();       break;
+        case 10: gg_kernel_panic(); break;
     }
     /* Restore GUI event routing before signalling completion. */
     is_gui_active = 1;

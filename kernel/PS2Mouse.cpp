@@ -139,6 +139,14 @@ extern "C" {
     volatile unsigned long g_ms_auxclr = 0;
 }
 
+/* ── Fullscreen-game mouselook capture ───────────────────────────────────
+   When capture is on, the IRQ accumulates the raw (pre-acceleration) relative
+   delta and skips both the GUI event push and the text-mode cursor draw, so
+   aiming never stalls at a screen edge and nothing is painted over the game. */
+static volatile bool s_capture = false;
+static volatile int  s_rel_dx  = 0;
+static volatile int  s_rel_dy  = 0;
+
 void PS2Mouse::handle_irq()
 {
     ++g_ms_irq;
@@ -193,6 +201,14 @@ void PS2Mouse::handle_irq()
     if (s_packet[0] & 0x10) dx |= (int)0xFFFFFF00;   /* sign-extend X */
     if (s_packet[0] & 0x20) dy |= (int)0xFFFFFF00;   /* sign-extend Y */
 
+    if (s_capture) {                                 /* fullscreen mouselook  */
+        s_rel_dx += dx;
+        s_rel_dy += dy;
+        s_buttons = s_packet[0] & 0x07;
+        eoi();
+        return;
+    }
+
     /* Pointer acceleration: slow, deliberate motions stay 1:1 for precision;
        fast flicks are multiplied so the cursor crosses the screen without
        dragging the mouse across the whole desk.                             */
@@ -237,6 +253,24 @@ int PS2Mouse::gui_x()   { return s_gui_x; }
 int PS2Mouse::gui_y()   { return s_gui_y; }
 int PS2Mouse::buttons() { return s_buttons; }
 
+static void game_mouse_capture(bool on)
+{
+    s_capture = on;
+    s_rel_dx  = 0;
+    s_rel_dy  = 0;
+}
+
+static void game_mouse_take_rel(int* dx, int* dy)
+{
+    unsigned long fl;                             /* take + reset atomically */
+    __asm__ volatile("pushf; pop %0; cli" : "=r"(fl) :: "memory");
+    int x = s_rel_dx, y = s_rel_dy;
+    s_rel_dx = 0; s_rel_dy = 0;
+    __asm__ volatile("push %0; popf" :: "r"(fl) : "cc", "memory");
+    if (dx) *dx = x;
+    if (dy) *dy = y;
+}
+
 } /* namespace Kernel */
 
 /* ── C bridges ───────────────────────────────────────────────────────── */
@@ -249,3 +283,7 @@ extern "C" int  ps2mouse_buttons(void)     { return Kernel::PS2Mouse::buttons();
 extern "C" void ps2mouse_cursor_show(void) { Kernel::PS2Mouse::draw(); }
 extern "C" void ps2mouse_cursor_hide(void) { Kernel::PS2Mouse::erase(); }
 extern "C" int  ps2mouse_enabled(void)     { return Kernel::s_enabled ? 1 : 0; }
+
+/* Fullscreen-game mouselook bridges (see game_mouse_capture). */
+extern "C" void ps2mouse_set_capture(int on)          { Kernel::game_mouse_capture(on != 0); }
+extern "C" void ps2mouse_take_rel(int* dx, int* dy)   { Kernel::game_mouse_take_rel(dx, dy); }

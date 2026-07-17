@@ -265,6 +265,10 @@ int gfx_height()  { return c_h; }
 /* Copy Graphics back-buffer → VGA framebuffer */
 void gfx_swap_buffers() { Graphics::instance().swap_buffers(); }
 
+/* Direct back-buffer pointer (tightly packed, stride = gfx_width) for games
+   that composite whole frames themselves (e.g. the raycaster upscale blit). */
+unsigned int* gfx_get_backbuffer() { return s_back; }
+
 /* Back-buffer helpers — write to s_back, presented by gfx_swap_buffers() */
 void gfx_put_pixel(int x, int y, unsigned int color) {
     if (!c_ready || x < 0 || y < 0 || x >= c_w || y >= c_h) return;

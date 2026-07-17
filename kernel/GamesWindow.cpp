@@ -35,6 +35,7 @@ static const GameInfo GAMES[GamesWindow::N_GAMES] = {
     { "8", "Simon",       "Memoire sequentielle — repetez le motif"     },
     { "9", "Matrix",      "Pluie de code — plongez dans la simulation"  },
     { "0", "Clock",       "Horloge ASCII — le temps tourne"             },
+    { "K", "Kernel Panic","FPS 3D Doom — volez le kernel, tuez Greg"     },
 };
 
 /* ── draw ─────────────────────────────────────────────────────────────── */
@@ -117,6 +118,7 @@ bool GamesWindow::handle_char(int c)
     /* Direct number keys: jump + launch */
     if (c >= '1' && c <= '9') { m_selected = c - '1'; launch(); return true; }
     if (c == '0')              { m_selected = 9;       launch(); return true; }
+    if (c == 'k' || c == 'K')  { m_selected = 10;      launch(); return true; }
 
     return false;
 }

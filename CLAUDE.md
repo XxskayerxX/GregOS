@@ -57,6 +57,9 @@ make clean      # ⚠️ SUPPRIME disk.img → le recréer :
 cd tests/host
 cc -std=c11 -O2 -Wall -Wextra -I../../include -o /tmp/hnt hn_test.c ../../kernel/hnefatafl_core.c && /tmp/hnt
 cc -std=c11 -O2 -Wall -Wextra -o /tmp/dgt dungeon_gen_test.c && /tmp/dgt
+# KERNEL PANIC (inclut kernel/doom.c tel quel) : rend les sprites + une image 3D du
+# boss (PPM → /tmp/doom_*.ppm) ET simule la mission (vol → 2 phases boss → victoire) :
+cc -O2 -w -o /tmp/drt doom_render_test.c && /tmp/drt
 ```
 
 - **`kernel/hnefatafl_core.c` est LE patron à réutiliser** pour toute logique riche :
@@ -137,6 +140,25 @@ Pièges du harnais, tous vécus :
   SystemMonitor, System, Casino (5 jeux), Poker, Games (launcher arcade plein écran via
   `launch_arcade_game_async`), Minesweeper, **Dungeon** (roguelike), **Hnefatafl**
   (tablut 9×9 vs IA minimax), StartMenu, ContextMenu, Login.
+- **KERNEL PANIC** (`kernel/doom.c`, C pur, `include/doom.h`) — FPS 3D façon Doom 64.
+  Raycaster **fixed-point 16.16 sans flottants ni libgcc** (`fixmul`/`fixdiv` en asm
+  inline `imull`/`idivl`). Jeu arcade **case 10** (`launch_arcade_game` +
+  `arcade_game_thread` dans kernel.c ; touche **K** dans `GamesWindow`, N_GAMES=11).
+  Murs/sols/plafonds texturés (procédural 64×64) + fog, sprites billboard z-occlus, rendu
+  400×240 upscalé ×2. 5 armes, 5 ennemis, **boss Greg+Drakkar 2 phases**, objectif « voler
+  le kernel » (`E`). **Carte 3 zones** (Pare-feu circuit / Chambre du Kernel rune / Arène
+  sang) : murs par bande X + sol/plafond teintés `s_ftex_z[3]`/`s_ctex_z[3]`, connexité
+  flood-fill. **Pickups** RAM(vie)/cellule(munitions). **Hauteurs de murs variables** :
+  `render3d()` empile les tranches near→far (`s_wallh[]`/`s_has_tall`, `init_wall_heights`),
+  z-buffer sur le **premier** hit seulement (occlusion inchangée) — **à hauteur 1 c'est
+  pixel-identique au rendu simple-hauteur** (garde-fou testé). **SFX** haut-parleur piloté
+  par frame (`sfx_play`/`sfx_tick`/`sfx_stop`, priorités, `timer_speaker_off` garanti en
+  sortie). 3 hooks pilotes : `PS2Keyboard.cpp` (buffer capture dédié `s_game_buf`
+  + `kb_poll_all`/`kb_scan_down`/`kb_game_capture`), `PS2Mouse.cpp` (`ps2mouse_set_capture`/
+  `ps2mouse_take_rel` pour mouselook), `gfx_get_backbuffer()`. ⚠️ QMP : `send-key` seul **NE
+  tient PAS** une touche (make+break en 1 frame) → mouvement via **`hold-time`** ; vérif
+  surtout par **suite hôte** `tests/host/doom_render_test.c` (connexité, mission, pickups,
+  SFX, identité multi-hauteurs). Audio prouvé au **WAV** (patron Chant Runique).
 - **Réseau** (`kernel/net.c`) — RTL8139 (PCI, IRQ), ARP/IPv4/ICMP/UDP/**TCP client**/
   DNS/DHCP/**HTTP/1.1** (requête 1.1 + `Connection: close`, décodage *chunked* —
   d'anciens commentaires du fichier disent « 1.0 », c'est le fil qui fait foi).
@@ -206,6 +228,22 @@ Pièges du harnais, tous vécus :
 
 ## État actuel & prochaine étape
 
+- ✅ **KERNEL PANIC — FPS 3D Doom 64 (2026-07-17)** : jeu complet, jouable et **abouti**
+  (`kernel/doom.c`, spec `docs/superpowers/specs/2026-07-17-kernel-panic-doom-design.md`).
+  Raycaster fixed-point 16.16 (0 flottant, 0 helper libgcc), murs/sols/plafonds texturés +
+  fog, sprites billboard z-occlus, mouselook, **5 armes**, **5 ennemis** (+ projectiles/IA),
+  **boss Greg+Drakkar 2 phases**, objectif « voler le kernel » (`E`). **+ 4 finitions
+  (2026-07-17)** : **pickups** vie/munitions posés, **SFX** haut-parleur (piloté frame,
+  prouvé au WAV), **carte 3 zones** thématisées (murs+sol/plafond teintés, connexité
+  flood-fill), **hauteurs de murs variables** (render3d multi-hit near→far, garde-fou
+  d'identité pixel à hauteur 1). Choix hauteurs via **workflow de design** (4 approches
+  jugées → « multi-hit stacked slices », le plus sûr : floorcast/sprites/z intacts).
+  Vérifié : build 0 warning, `nm` propre, suite hôte complète (sprites, image 3D boss,
+  mission vol→2 phases→victoire, 2 chemins de dégâts, connexité, pickups, SFX, **identité
+  multi-hauteurs 0 pixel de diff sur 6 vues**), **QEMU/QMP** (3 zones, murs qui se dressent,
+  boss plein écran, WAV du haut-parleur). Détails moteur/hooks : puce KERNEL PANIC de l'archi.
+  Extensions restantes possibles : plateformes *walkables*/pits (portal/sector engine),
+  2ᵉ niveau.
 - **Triptyque du Royaume** (3 apps, spec `docs/superpowers/specs/2026-07-15-triptyque-royaume-design.md`) :
   ✅ **TRIPTYQUE COMPLET (2026-07-16)** : 1/3 Donjon de Drakkar · 2/3 Hnefatafl ·
   3/3 Chant Runique (`kernel/RuneChantWindow.cpp` + données C pur

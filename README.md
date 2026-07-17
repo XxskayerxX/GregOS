@@ -44,7 +44,7 @@
 | 🌐 **Vraie pile TCP/IP** | RTL8139 → ARP · IPv4 · ICMP · UDP · **TCP** · DNS · **HTTP** — `ping`, `nslookup`, `curl` marchent *vraiment* |
 | 🧭 **GregNet** | Navigateur web fenêtré : barre d'adresse, historique, moteur de rendu HTML, liens cliquables, **images PNG inline** (décodeur inflate/PNG from scratch) |
 | 💾 **Persistance disque** | Système de fichiers en mémoire sérialisé sur disque via un pilote **ATA/IDE** maison |
-| 🎮 **Jeux + Casino** | **Le Donjon de Drakkar** (roguelike) · **Hnefatafl** (tafl viking vs IA minimax) · Démineur du Donjon · Snake, Tetris, Invaders, 2048… + Blackjack / Roulette / Slots / Poker en **GregCoins** |
+| 🎮 **Jeux + Casino** | **KERNEL PANIC** (FPS 3D façon Doom 64, moteur raycaster maison) · **Le Donjon de Drakkar** (roguelike) · **Hnefatafl** (tafl viking vs IA minimax) · Démineur du Donjon · Snake, Tetris, Invaders, 2048… + Blackjack / Roulette / Slots / Poker en **GregCoins** |
 | 🎵 **Le Chant Runique** | **Premier son de GregOS** : clavier 2 octaves sur le haut-parleur PC (PIT canal 2) + 4 mélodies du royaume jouées dans un thread — vérifié à l'oscillo logiciel (capture WAV QEMU, fréquences mesurées) |
 | 🛡️ **Userland Ring-3** | CPL=3 réel, un *page directory* par processus, syscalls `INT 0x80`, chargeur **ELF** |
 | ⚡ **ACPI + préemption** | Extinction / reboot ACPI réels, ordonnanceur préemptif 100 Hz, réseau piloté par IRQ |
@@ -73,6 +73,57 @@ make run        # démarre dans QEMU (RTL8139 + audio PC speaker)
 <summary><b>📜 Journal des versions &amp; nouveautés détaillées — cliquer pour déplier</b></summary>
 
 <br>
+
+## 🎮 KERNEL PANIC — un FPS 3D façon Doom 64, moteur maison, sur le lore
+
+GregOS a désormais son **jeu de tir en 3D**, écrit **de zéro** pour le fer nu
+(`kernel/doom.c`, C pur ramassé par le noyau ET compilé à l'identique sur l'hôte).
+Vous êtes **L'Intrus**, entré par effraction dans le cœur de GregOS pour **voler le
+kernel** ; les gardiens du royaume sont **Greg 1ᵉʳ et son dragon Drakkar**. Le rendu est
+un **raycaster en virgule fixe 16.16** — **aucun flottant, zéro helper libgcc** : les
+multiplications/divisions 16.16 passent par `imull`/`idivl` en **asm inline** pour rester
+*freestanding*. On y trouve tout le vocabulaire du Doom 64 : **murs, sols ET plafonds
+texturés** (textures procédurales 64×64 — brique, circuit phosphore, rune ambre, marbre de
+sang), **brouillard** par distance, **hauteurs de murs variables** (piliers, portails et
+créneaux qui *se dressent* au-dessus de la ligne d'horizon — un raycaster **multi-hit** qui
+empile les tranches de mur du plus proche au plus loin, si bien qu'un mur haut *dépasse*
+par-dessus un mur bas), *sprites billboard* triés en profondeur et **occlusés par un
+z-buffer par colonne**, le tout rendu en **basse résolution 400×240 puis upscalé ×2** (la
+pénombre granuleuse d'époque). Contrôles **clavier + souris (mouselook)** : ZQSD/flèches,
+course, tir, `E` pour voler le kernel.
+
+Le niveau est un **parcours en trois zones thématisées** — **Pare-feu** (circuits phosphore
+vert), **Chambre du Kernel** (rune ambre) et **Arène** (marbre de sang) — chacune avec ses
+murs *et* son sol/plafond **teintés**, connexité **prouvée par flood-fill** sur la vraie
+carte embarquée. On y ramasse des **pièces** : puces **RAM** (rendent 25 de vie) et
+**cellules de signal** (rechargent les munitions).
+
+**Cinq armes** (Lame SIGKILL corps-à-corps, Décompileur, **Fork Bomb** à 7 plombs,
+**Rafale -9** automatique, **`rm -rf /`** à explosion de zone) contre **cinq ennemis** au
+comportement propre — Sentinelle, **Runeur** (lanceur de sorts qui *kite*), **Golem** de
+pierre encaisseur, **Spectre** rapide, **Corbeau** volant — projectiles ennemis, IA de
+poursuite avec ligne de vue. Le climax est un **boss en deux phases** : d'abord **DRAKKAR**
+fond sur vous et **crache un éventail de feu** tandis que Greg reste protégé ; le dragon
+abattu, **GREG 1ᵉʳ** s'enrage, vulnérable, et lance ses volées runiques — barre de vie de
+boss, jauge d'objectif dynamique, secousse d'impact ambrée, écran de **victoire**. Et le
+royaume **sonne** : un moteur **SFX au haut-parleur PC** (piloté par frame, sans thread,
+avec priorités) claque le tir, l'impact, le ramassage, l'**alarme** au vol du kernel, le
+**rugissement** du boss, la mort et la **fanfare de victoire** — coupure du gate garantie
+en sortie.
+
+Vérification dans l'esprit du projet : une **suite hôte** (`tests/host/doom_render_test.c`)
+compile le **vrai code du jeu** et (1) **rend chaque sprite** en planche PPM, (2) **rend des
+images 3D complètes** (boss + une par zone + murs hauts, billboards/tri/occlusion vérifiés à
+l'œil), (3) **simule toute la colonne vertébrale de la mission** — vol du kernel → phase 1
+Drakkar → phase 2 Greg → victoire — et prouve que **les deux chemins de dégâts** (hitscan
+*et* zone `rm -rf`) touchent le boss, (4) **prouve la connexité** de la carte (flood-fill
+spawn → kernel → arène), le **ramassage** des pickups, la **machine à sons**, et — garde-fou
+clé — que **le rendu multi-hauteurs à hauteur 1 est pixel-identique** au rendu simple-hauteur
+déjà validé (zéro régression, prouvé sur 6 points de vue). Puis **bout-en-bout en QEMU**
+(piloté QMP) : le jeu se lance depuis le menu Démarrer → *Jeux* → **Kernel Panic** ; le
+couloir texturé, les trois zones, **les murs qui se dressent**, l'ATH « TUE GREG+DRAKKAR » et
+**le boss Drakkar plein écran** s'affichent dans le vrai noyau, et le haut-parleur est
+**capté au WAV** (vrais créneaux mesurés). Depuis l'**Arcade GregOS** (touche `K`).
 
 ## 🌍 GregNet affiche les images du vrai web — décodeur PNG from scratch
 
@@ -906,6 +957,38 @@ A ready-made example is pre-loaded at `/home/hello.sh`.
 ## Games Documentation
 
 All games are rewritten from scratch. Each supports **P=pause** and **ESC=quit**.
+
+---
+
+### KERNEL PANIC (FPS 3D — Doom 64 style)
+
+A from-scratch **fixed-point 16.16 raycaster** (no floats, no libgcc helpers). You are
+**L'Intrus**, in to steal the kernel; the final boss is **Greg 1er and his dragon
+Drakkar** (2 phases). Textured walls/floors/ceilings, distance fog, depth-sorted
+z-occluded billboard sprites, low-res 400×240 ×2 upscale. Launch from **Arcade GregOS**
+(key `K`) or Start Menu → *Jeux* → *Kernel Panic*.
+
+| Key | Action |
+|---|---|
+| `Z` `Q` `S` `D` / arrows | Move / strafe |
+| Mouse | Look (mouselook) |
+| `Shift` | Run |
+| `1`–`5` | Switch weapon |
+| `SPACE` / `Ctrl` / left-click | Fire |
+| `E` | Steal the kernel (near the pedestal) |
+| `ESC` | Quit |
+
+- **5 weapons**: Lame SIGKILL (melee), Décompileur, Fork Bomb (7-pellet spread),
+  Rafale -9 (full-auto), `rm -rf /` (AoE blast).
+- **5 enemies**: Sentinelle, Runeur (ranged/kiting), Golem (tank), Spectre (fast),
+  Corbeau (flying, ranged) — plus enemy projectiles and LOS-aware pursuit AI.
+- **3 themed zones**: Pare-feu (phosphor circuitry) → Chambre du Kernel (amber rune) →
+  Arène (blood marble), each with tinted walls/floors and **variable wall heights**
+  (towering gates, pillars, battlements).
+- **Pickups**: RAM chips (+25 health), signal cells (ammo refill).
+- **Sound**: PC-speaker SFX (fire/hit/pickup/alarm/boss roar/death/victory).
+- **Objective**: reach the kernel, press `E` to steal it → the guardians awaken. Kill
+  **Drakkar**, then the enraged **Greg 1er**, to win.
 
 ---
 

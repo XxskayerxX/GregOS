@@ -56,6 +56,16 @@ static volatile unsigned char s_kb_buf[KB_BUF_SIZE];
 static volatile unsigned char s_kb_head = 0;
 static volatile unsigned char s_kb_tail = 0;
 
+/* Dedicated raw ring for fullscreen games. When capture is on the IRQ routes
+   every scancode here instead of s_kb_buf, so the game thread is the SOLE
+   consumer of its input — immune to the main compositor loop, which otherwise
+   drains s_kb_buf via get_char() while is_gui_active is 0. Mirrors the mouse
+   capture accumulator.                                                      */
+static volatile bool          s_kbd_capture = false;
+static volatile unsigned char s_game_buf[KB_BUF_SIZE];
+static volatile unsigned char s_game_head = 0;
+static volatile unsigned char s_game_tail = 0;
+
 /* Injection buffer — pre-processed chars from TerminalWindow::handle_char().
    Head written by main thread (inject_char), tail read by main thread (get_char). */
 static volatile int           s_inj_buf[KB_INJ_SIZE];
@@ -109,7 +119,13 @@ int PS2Keyboard::process_scancode(unsigned char sc)
 void PS2Keyboard::handle_irq()
 {
     unsigned char sc = port_byte_in(0x60);
-    if (is_gui_active) {
+    if (s_kbd_capture) {
+        unsigned char next = (unsigned char)((s_game_head + 1) & (KB_BUF_SIZE - 1));
+        if (next != s_game_tail) {
+            s_game_buf[s_game_head] = sc;
+            s_game_head = next;
+        }
+    } else if (is_gui_active) {
         event_push_key(sc);
     } else {
         unsigned char next = (unsigned char)((s_kb_head + 1) & (KB_BUF_SIZE - 1));
@@ -169,6 +185,48 @@ int PS2Keyboard::scancode_to_char(unsigned char sc)
     return process_scancode(sc);
 }
 
+/* ── Raw key-state bitmap for fullscreen games ───────────────────────────
+   An FPS needs simultaneous held-key state (advance + strafe + turn), which
+   the one-char-at-a-time get_char() path cannot provide. In non-GUI mode the
+   IRQ fills s_kb_buf with raw scancodes; game_poll_keys() drains them into a
+   press/release bitmap. Indices 0x00-0x7F are base scancodes; 0x80-0xFF are
+   extended (0xE0-prefixed) keys (arrows). Called only from the game thread —
+   no IRQ contention on s_key_down.                                         */
+static volatile unsigned char s_key_down[256];
+static bool                   s_ks_ext = false;
+
+static void ks_process(unsigned char sc)
+{
+    if (sc == 0xE0) { s_ks_ext = true; return; }
+    int idx = (sc & 0x7F) | (s_ks_ext ? 0x80 : 0);
+    s_ks_ext = false;
+    s_key_down[idx] = (sc & 0x80) ? 0 : 1;      /* bit 7 set = key release */
+}
+
+static void game_poll_keys()
+{
+    while (s_game_head != s_game_tail) {
+        unsigned char sc = s_game_buf[s_game_tail];
+        s_game_tail = (unsigned char)((s_game_tail + 1) & (KB_BUF_SIZE - 1));
+        ks_process(sc);
+    }
+}
+
+static void game_capture(bool on)
+{
+    s_kbd_capture = on;
+    s_game_tail   = s_game_head;                     /* drop stale scancodes */
+}
+
+static int  game_key_down(int idx) { return (idx >= 0 && idx < 256) ? s_key_down[idx] : 0; }
+
+static void game_key_reset()
+{
+    for (int i = 0; i < 256; ++i) s_key_down[i] = 0;
+    s_ks_ext    = false;
+    s_game_tail = s_game_head;                    /* drop buffered scancodes */
+}
+
 } /* namespace Kernel */
 
 /* ── C bridges — match keyboard.h exactly ───────────────────────────── */
@@ -181,3 +239,9 @@ extern "C" void kb_inject_char(int c)       { Kernel::PS2Keyboard::inject_char(c
 extern "C" void kb_inject_flush(void)       { Kernel::PS2Keyboard::inject_flush(); }
 extern "C" int  kb_scancode_to_char(unsigned char sc)
                                             { return Kernel::PS2Keyboard::scancode_to_char(sc); }
+
+/* Fullscreen-game key-state bridges (see game_poll_keys). */
+extern "C" void kb_poll_all(void)           { Kernel::game_poll_keys(); }
+extern "C" int  kb_scan_down(int idx)       { return Kernel::game_key_down(idx); }
+extern "C" void kb_keystate_reset(void)     { Kernel::game_key_reset(); }
+extern "C" void kb_game_capture(int on)     { Kernel::game_capture(on != 0); }
